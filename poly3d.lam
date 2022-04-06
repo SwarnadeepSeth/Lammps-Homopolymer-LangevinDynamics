@@ -1,0 +1,155 @@
+#============================================================================================#
+#						SINGLE POLYMER DYNAMICS IN GOOD SOLVENT                              #
+#============================================================================================#
+
+# Variable List
+variable ParticleN equal 64
+variable temp equal 1.0
+variable kappa equal 8.0
+variable gamma equal 0.7 
+variable damp equal 1.0/${gamma}
+dimension 3
+units lj
+atom_style	molecular
+#boundary p p p
+boundary s s s
+#boundary f f f
+comm_modify cutoff 4
+
+#neighbor settings
+neighbor 1.0 bin
+neigh_modify every 1 delay 0 check yes
+
+#=================================Load Initial Configuration=================================#
+#read_data poly1.input # (change to poly5.input to simulate 5 polymers)
+read_data poly1_${ParticleN}.input
+#============================================================================================#
+
+#Box Boundary
+region box block -5000 5000 -5000 5000 -5000 5000
+
+#Particle Properties
+mass * 1
+group polymer3d type 1
+
+#run_style verlet
+
+#========================================Initial Velocity====================================#
+velocity all create ${temp} 1298371 mom yes rot yes dist gaussian
+#============================================================================================#
+
+#===================================Potential Definition=====================================#
+#Weeks-Chandler-Anderson
+pair_style         lj/cut 1.12246204830937
+pair_coeff         * * 1.0 1.0 1.12246204830937
+pair_modify        shift yes
+
+#FENE type bond
+bond_style fene
+bond_coeff 1 30.0 1.5 1.0 1.0
+special_bonds fene
+
+#cosine angle: E = kappa*(1+cos(theta))
+#angle_style cosine
+#angle_coeff * ${kappa}
+
+#cosine shift angle: E = (U_min/2)*(1+cos(theta-theta_0))
+variable K equal 2.0*${kappa}
+angle_style cosine/shift
+angle_coeff * ${K} 180.0
+#=============================================================================================#
+
+#remove overlap between polymer beads
+minimize 1e-7 1e-7 1000 1000
+reset_timestep 0
+
+#####################################################
+# Equilibration (Langevin dynamics at T)
+#=======================================Set Integrator========================================#
+fix integrator polymer3d nve gjf = yes
+fix dynamics   polymer3d langevin ${temp} ${temp} ${damp} 252352
+
+# specify timestep
+timestep	0.01
+
+# Thermodynamic Quantities Print 
+thermo_style custom step temp  ke pe  
+thermo_modify   norm yes flush yes
+thermo    1000000
+
+run 10000000 # Equilibriation Steps (will be discarded)
+#=============================================================================================#
+
+# Reset the Integrator
+reset_timestep 0
+unfix integrator
+unfix dynamics
+
+#####################################################
+# Post Equilibration (Langevin dynamics at T)
+#=======================================Set Integrator========================================#
+fix integrator polymer3d nve gjf = yes
+fix dynamics   polymer3d langevin ${temp} ${temp} ${damp} 252352
+
+# specify timestep
+timestep	0.01
+
+################################################################################################
+# 						On the Fly Statistical Quantities Calculations						   #
+################################################################################################
+# Radius of Gyration Output
+compute 1 all gyration
+variable Rgsq equal c_1*c_1
+fix Rgave all ave/time 100 5 1000 c_1 v_Rgsq file Rg.dat 
+
+# Potential Energy Output
+compute 2 all pe
+variable pesq equal c_2*c_2
+fix Peave all ave/time 100 5 1000 c_2 v_pesq file PEavg.dat
+
+# End to End distance
+variable Rendsq equal (x[${ParticleN}]-x[1])^2+(y[${ParticleN}]-y[1])^2+(z[${ParticleN}]-z[1])^2
+fix Rendave all ave/time 100 5 1000 v_Rendsq file Rend.dat
+
+# Bond Length Calculation
+compute 3 all bond/local dist 
+compute Ave_BL all reduce ave c_3
+variable BL equal c_Ave_BL
+
+# cos(Angle) Calculation
+variable t internal 0.0
+variable cos equal cos(v_t)
+compute 5 all angle/local v_cos set theta t
+compute Ave_cosAng all reduce ave c_5
+variable AvgcosAng equal c_Ave_cosAng
+
+##################################################################################################
+
+# Thermodynamic Quantities Print 
+thermo_style custom step temp v_BL v_cos v_AvgcosAng
+thermo_modify   norm yes flush yes
+thermo    10000
+
+# Write Coordinates 
+#dump 1 all atom 100 Running_Config.lammpstrj # (Movie Making)
+dump 2 all dcd 5000 Running_Config.dcd 
+
+
+run 10000000 # Post-Equilibriation Steps 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
